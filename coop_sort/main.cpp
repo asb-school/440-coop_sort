@@ -50,38 +50,30 @@ bool is_sorted(T begin, T end)
  * Random number generator wrapper for rand_r which can be used as a
  * generator function.
  */
-/*
+
 class randt {
 private:
 	unsigned int s;
 	//static unsigned int s_static;
 public:
 	randt(unsigned int seed):s(seed) {};
-	randt() { s = rand()%100;  s = rand_r(&s_static);  };
+	randt() { s = rand()%100;  /*s = rand_r(&s_static); */ };
 	
 	unsigned int operator()() {
 		return rand_r(&s);
 	}
-};*/
+};
 
-
+/* an attempt at fixing the broken random number generator
 class randt
 {
-	private: 
-		unsigned int s;
-
 	public:
-		randt()
+		int random()
 		{
 			srand((int)time(0));
-			s = rand() % 1000;
+			return rand() % 1000;
 		}
-	
-		unsigned int operator()()
-		{
-			return rand_r(&s);
-		}
-};
+};*/
 
 //unsigned int randt::s_static = (unsigned int)time(NULL);
 
@@ -314,6 +306,45 @@ void* sorter(void *p)
  */
 void* merger(void *p)
 {
+	// pointer to info object
+	merger_tinfo *infoPointer = static_cast<merger_tinfo*>(p);
+
+	// check if empty
+	if (infoPointer->bbuf_sorted->isEmpty())
+	{
+		cout << "Sorted bounded buffer is empty" << endl;
+	}
+	else
+	{
+		// Keep getting buckets until none left
+		while (! infoPointer->bbuf_sorted->isEmpty())
+		{
+			// Get a bucket
+			vector<int> currentBucket = infoPointer->bbuf_sorted->remove();
+			
+			// Get size of the bucket
+			if (currentBucket.size() > 0)
+			{
+				// Add bucket contents to sorted list
+				for (auto iterator = currentBucket.begin(); iterator != currentBucket.end(); iterator++)
+				{
+					// Current value 
+					int &value = *iterator;
+					
+					// Push to vector
+					infoPointer->sorted_items->push_back(value);
+				}
+			}
+			else
+			{
+				return NULL;
+			}
+		}
+		
+		// Sort the items
+		sort(infoPointer->sorted_items->begin(), infoPointer->sorted_items->end());
+	}
+	
     return NULL;
 }
 
@@ -408,9 +439,7 @@ int mainx(int argc, const char * argv[])
         pthread_join(*t, NULL);
     }
 	
-	
-	cout << "THIS IS A TEST. NO ONE PANIC." << endl;
-	
+		
     //====================================================================
     // Create sorter threads
     //====================================================================
@@ -438,25 +467,7 @@ int mainx(int argc, const char * argv[])
         }
     }
 	
-    //====================================================================
-    // Create merger thread
-    //====================================================================
-	
-    pthread_t merger_thread;
-    merger_tinfo merger_tinfo_x;
-	
-    merger_tinfo_x.sorted_items = &items;
-    pthread_create(&merger_thread, &pattr, merger, &merger_tinfo_x);
-	
-    //====================================================================
-    // Wait for all threads to finish
-    //====================================================================
-	
-    //cout << "Before thread joins" << endl;
-	
-   
-	
-    // Wait for sorter threads to finish. Each one must receive a
+	// Wait for sorter threads to finish. Each one must receive a
     // bucket of size 0 to know it is time to exit.
     //unsorted_q x
     for(int i = 0; i < num_threads; i++)
@@ -468,6 +479,19 @@ int mainx(int argc, const char * argv[])
         pthread_t* t = &(*it);
         pthread_join(*t, NULL);
     }
+
+	
+    //====================================================================
+    // Create merger thread
+    //====================================================================
+	
+    pthread_t merger_thread;
+    merger_tinfo merger_tinfo_x;
+	
+	merger_tinfo_x.bbuf_sorted = &sorted_q;
+    merger_tinfo_x.sorted_items = &items;
+    pthread_create(&merger_thread, &pattr, merger, &merger_tinfo_x);
+	
 	
     // Wait for merger thread to finish. It must receive a
     // bucket of size 0 to know it is time to exit.
@@ -475,6 +499,7 @@ int mainx(int argc, const char * argv[])
     pthread_join(merger_thread, NULL);
 	
     //cout << "After thread joins" << endl;
+	
 	
     //====================================================================
     // Process results
