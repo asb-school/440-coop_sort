@@ -23,7 +23,7 @@
 #include <queue>
 #include <iterator>
 #include <algorithm>
-
+#include <ctime>
 #include <cstdlib>
 #include <pthread.h>
 #include <semaphore.h>
@@ -50,17 +50,37 @@ bool is_sorted(T begin, T end)
  * Random number generator wrapper for rand_r which can be used as a
  * generator function.
  */
+/*
 class randt {
 private:
 	unsigned int s;
 	//static unsigned int s_static;
 public:
 	randt(unsigned int seed):s(seed) {};
-	randt() { s = rand(); /* s = rand_r(&s_static); */ };
+	randt() { s = rand()%100;  s = rand_r(&s_static);  };
 	
 	unsigned int operator()() {
 		return rand_r(&s);
 	}
+};*/
+
+
+class randt
+{
+	private: 
+		unsigned int s;
+
+	public:
+		randt()
+		{
+			srand((int)time(0));
+			s = rand() % 1000;
+		}
+	
+		unsigned int operator()()
+		{
+			return rand_r(&s);
+		}
 };
 
 //unsigned int randt::s_static = (unsigned int)time(NULL);
@@ -115,6 +135,16 @@ public:
 		sem_post(&empty);
 		
 		return bucket;
+	}
+	
+	int bucketSize()
+	{
+		return (int) bucket_queue.size();
+	}
+	
+	bool isEmpty()
+	{
+		return bucket_queue.empty();
 	}
 };
 
@@ -176,6 +206,7 @@ public:
 		cout << "bbuf_unsorted: " << bbuf_unsorted << endl;
 		cout << "bbuf_sorted: " << bbuf_sorted << endl;
 	}
+	
 };
 
 /**
@@ -245,7 +276,36 @@ void* item_gen(void *p)
  */
 void* sorter(void *p)
 {
-    return NULL;
+    // Get a pointer to the sorter_tinfo object
+	sorter_tinfo *ti = static_cast<sorter_tinfo*>(p);
+	
+	// Get items from the unsorted queue
+	if (ti->bbuf_unsorted->isEmpty())
+	{
+		cout << "Unsorted bounded buffer is empty" << endl;
+	}
+	else
+	{
+		// Get a bucket
+		vector<int> currentBucket = ti->bbuf_unsorted->remove();
+		
+		// Get the size of the bucket
+		if (currentBucket.size() > 0)
+		{
+			// Sort the bucket
+			sort(currentBucket.begin(), currentBucket.end());
+			
+			// Add the bucket to the sorted bounded buffer
+			ti->bbuf_sorted->add(currentBucket);
+		}
+		else
+		{
+			// Exit
+			return NULL;
+		}
+	}
+	
+	return NULL;
 }
 
 /**
@@ -341,6 +401,16 @@ int mainx(int argc, const char * argv[])
         }
     }
 	
+	// Wait for item generator threads to finish
+    for(auto it = item_gen_threads.begin(); it != item_gen_threads.end(); it++)
+    {
+        pthread_t* t = &(*it);
+        pthread_join(*t, NULL);
+    }
+	
+	
+	cout << "THIS IS A TEST. NO ONE PANIC." << endl;
+	
     //====================================================================
     // Create sorter threads
     //====================================================================
@@ -353,6 +423,8 @@ int mainx(int argc, const char * argv[])
         {
             sorter_tinfo& ti = *it;
             ti.id = tid;
+			ti.bbuf_unsorted = &unsorted_q;
+			ti.bbuf_sorted = &sorted_q;
             tid++;
         }
     }
@@ -382,12 +454,7 @@ int mainx(int argc, const char * argv[])
 	
     //cout << "Before thread joins" << endl;
 	
-    // Wait for item generator threads to finish
-    for(auto it = item_gen_threads.begin(); it != item_gen_threads.end(); it++)
-    {
-        pthread_t* t = &(*it);
-        pthread_join(*t, NULL);
-    }
+   
 	
     // Wait for sorter threads to finish. Each one must receive a
     // bucket of size 0 to know it is time to exit.
